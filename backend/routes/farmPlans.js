@@ -1,8 +1,9 @@
-// Farm Planning API Routes
+// Complete Farm Planning API Routes with Auto Task Generation
 const express = require('express');
 const { verifyToken } = require('../middleware/auth');
 const database = require('../config/database');
 const farmCalculator = require('../utils/farmCalculator');
+const taskGenerator = require('../utils/taskGenerator');
 
 const router = express.Router();
 
@@ -74,7 +75,7 @@ router.post('/calculate', verifyToken, async (req, res) => {
 });
 
 // @route   POST /api/farm-plans/create
-// @desc    Create and save a farm plan
+// @desc    Create and save a farm plan with auto task generation
 // @access  Private
 router.post('/create', verifyToken, async (req, res) => {
     try {
@@ -142,12 +143,27 @@ router.post('/create', verifyToken, async (req, res) => {
             [result.id]
         );
         
+        // Auto-generate tasks for the farm plan
+        let tasksGenerated = false;
+        let taskCount = 0;
+        try {
+            const generatedTasks = await taskGenerator.generateTasksForFarmPlan(farmPlan);
+            tasksGenerated = true;
+            taskCount = generatedTasks.length;
+            console.log(`✅ Auto-generated ${generatedTasks.length} tasks for farm plan ${farmPlan.id}`);
+        } catch (taskError) {
+            console.error('⚠️  Task generation failed, but farm plan created:', taskError.message);
+            tasksGenerated = false;
+        }
+        
         res.status(201).json({
             success: true,
             message: 'Plan d\'élevage créé avec succès',
             data: {
                 farm_plan: farmPlan,
-                recommendations: recommendations.data
+                recommendations: recommendations.data,
+                tasks_generated: tasksGenerated,
+                tasks_count: taskCount
             }
         });
         
@@ -299,16 +315,16 @@ router.put('/:id', verifyToken, async (req, res) => {
         // Update farm plan
         await database.run(
             `UPDATE farm_plans 
-             SET plan_name = ?, notes = ?, status = ?, updated_at = CURRENT_TIMESTAMP
+             SET plan_name = ?, notes = ?, status = ?
              WHERE id = ? AND user_id = ?`,
             [
-                plan_name || existingPlan.plan_name,
-                notes !== undefined ? notes : existingPlan.notes,
-                status || existingPlan.status,
-                farmPlanId,
-                userId
+              plan_name || existingPlan.plan_name,
+              (notes !== undefined ? notes : existingPlan.notes),
+              status || existingPlan.status,
+              farmPlanId,
+              userId
             ]
-        );
+        );          
         
         // Get updated farm plan
         const updatedPlan = await database.get(
