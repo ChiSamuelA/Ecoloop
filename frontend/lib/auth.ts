@@ -48,16 +48,38 @@ export const authApi = {
       throw new AuthError(error.message || "Login failed", response.status)
     }
 
-    return response.json()
+    const data = await response.json()
+    
+    // Transform backend response to match v0 structure
+    if (data.success && data.data) {
+      return {
+        user: {
+          id: data.data.user.id.toString(),
+          email: data.data.user.email,
+          name: data.data.user.nom, // Map nom to name
+          role: data.data.user.role,
+        },
+        token: data.data.token,
+      }
+    }
+    
+    throw new AuthError("Invalid response format")
   },
 
   async register(credentials: RegisterCredentials): Promise<AuthResponse> {
+    // Transform v0 structure to backend structure
+    const backendCredentials = {
+      nom: credentials.name, // Map name to nom
+      email: credentials.email,
+      password: credentials.password,
+    }
+
     const response = await fetch(`${API_BASE_URL}/api/auth/register`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(credentials),
+      body: JSON.stringify(backendCredentials),
     })
 
     if (!response.ok) {
@@ -65,11 +87,27 @@ export const authApi = {
       throw new AuthError(error.message || "Registration failed", response.status)
     }
 
-    return response.json()
+    const data = await response.json()
+    
+    // Transform backend response to match v0 structure
+    if (data.success && data.data) {
+      return {
+        user: {
+          id: data.data.user.id.toString(),
+          email: data.data.user.email,
+          name: data.data.user.nom, // Map nom to name
+          role: data.data.user.role,
+        },
+        token: data.data.token,
+      }
+    }
+    
+    throw new AuthError("Invalid response format")
   },
 
   async verifyToken(token: string): Promise<User> {
-    const response = await fetch(`${API_BASE_URL}/api/auth/verify`, {
+    // Use your backend's profile endpoint instead of verify
+    const response = await fetch(`${API_BASE_URL}/api/auth/profile`, {
       method: "GET",
       headers: {
         Authorization: `Bearer ${token}`,
@@ -80,7 +118,19 @@ export const authApi = {
       throw new AuthError("Token verification failed", response.status)
     }
 
-    return response.json()
+    const data = await response.json()
+    
+    // Transform backend response to match v0 structure
+    if (data.success && data.data) {
+      return {
+        id: data.data.user.id.toString(),
+        email: data.data.user.email,
+        name: data.data.user.nom, // Map nom to name
+        role: data.data.user.role,
+      }
+    }
+    
+    throw new AuthError("Invalid response format")
   },
 }
 
