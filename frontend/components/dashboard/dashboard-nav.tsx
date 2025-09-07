@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
@@ -28,8 +28,19 @@ const navigation = [
 
 export function DashboardNav() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+  const [isMounted, setIsMounted] = useState(false)
   const { user, logout } = useAuth()
   const pathname = usePathname()
+
+  // Fix hydration error - only render user data after component mounts
+  useEffect(() => {
+    setIsMounted(true)
+  }, [])
+
+  // Safe user data that won't cause hydration issues
+  const safeUserName = isMounted && user?.name ? user.name : ""
+  const safeUserEmail = isMounted && user?.email ? user.email : ""
+  const safeUserInitial = isMounted && user?.name ? user.name.charAt(0).toUpperCase() : "U"
 
   return (
     <>
@@ -71,14 +82,14 @@ export function DashboardNav() {
                   <DropdownMenuTrigger asChild>
                     <Button variant="ghost" className="w-full justify-start p-2">
                       <Avatar className="h-8 w-8 mr-3">
-                        <AvatarImage src="/placeholder.svg" alt={user?.name} />
+                        <AvatarImage src="/placeholder.svg" alt={safeUserName} />
                         <AvatarFallback className="bg-primary text-primary-foreground">
-                          {user?.name?.charAt(0).toUpperCase()}
+                          {safeUserInitial}
                         </AvatarFallback>
                       </Avatar>
                       <div className="flex flex-col items-start">
-                        <span className="text-sm font-medium">{user?.name}</span>
-                        <span className="text-xs text-muted-foreground">{user?.email}</span>
+                        <span className="text-sm font-medium">{safeUserName}</span>
+                        <span className="text-xs text-muted-foreground">{safeUserEmail}</span>
                       </div>
                     </Button>
                   </DropdownMenuTrigger>
@@ -114,9 +125,9 @@ export function DashboardNav() {
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="sm" className="p-0">
               <Avatar className="h-8 w-8">
-                <AvatarImage src="/placeholder.svg" alt={user?.name} />
+                <AvatarImage src="/placeholder.svg" alt={safeUserName} />
                 <AvatarFallback className="bg-primary text-primary-foreground">
-                  {user?.name?.charAt(0).toUpperCase()}
+                  {safeUserInitial}
                 </AvatarFallback>
               </Avatar>
             </Button>
