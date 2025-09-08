@@ -5,6 +5,10 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { ArrowLeft, Users, DollarSign, TrendingUp, Calendar, Target, CheckCircle, Clock } from "lucide-react"
+import { PlanTasks } from "./plan-tasks"
+import { useState } from "react"
+import { toast } from "../ui/use-toast"
+import { tokenStorage } from "@/lib/auth"
 
 interface PlanDetailProps {
   planData: any
@@ -22,6 +26,42 @@ function formatCurrency(amount: number) {
 
 export function PlanDetail({ planData, onBack, onEdit }: PlanDetailProps) {
   const { farm_plan, task_statistics, recommendations } = planData.data
+  const [updatingStatus, setUpdatingStatus] = useState(false)
+
+    const updateStatus = async (newStatus: string) => {
+    setUpdatingStatus(true)
+    try {
+        const token = tokenStorage.get()
+        if (!token) throw new Error("Authentication required")
+
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/farm-plans/${farm_plan.id}`, {
+        method: "PUT",
+        headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ status: newStatus }),
+        })
+
+        if (!response.ok) throw new Error("Status update failed")
+
+        toast({
+        title: "Status Updated",
+        description: `Plan status changed to ${newStatus}`,
+        })
+        
+        // Refresh the plan data
+        window.location.reload() // Simple refresh for now
+    } catch (error) {
+        toast({
+        title: "Update Failed",
+        description: "Failed to update plan status",
+        variant: "destructive",
+        })
+    } finally {
+        setUpdatingStatus(false)
+    }
+    }
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -55,6 +95,21 @@ export function PlanDetail({ planData, onBack, onEdit }: PlanDetailProps) {
               Edit Plan
             </Button>
           )}
+        </div>
+        <div className="flex items-center space-x-2">
+            <Badge className={getStatusColor(farm_plan.status)}>
+                {farm_plan.status}
+            </Badge>
+            {farm_plan.status === 'active' && (
+                <Button variant="outline" size="sm" onClick={() => updateStatus('completed')} disabled={updatingStatus}>
+                Mark Complete
+                </Button>
+            )}
+            {onEdit && (
+                <Button variant="outline" onClick={onEdit}>
+                Edit Plan
+                </Button>
+            )}
         </div>
       </div>
 
@@ -213,6 +268,9 @@ export function PlanDetail({ planData, onBack, onEdit }: PlanDetailProps) {
           </Card>
         </div>
       )}
+
+      {/* Task Management */}
+      <PlanTasks farmPlanId={farm_plan.id} />
 
       {/* Notes */}
       {farm_plan.notes && (

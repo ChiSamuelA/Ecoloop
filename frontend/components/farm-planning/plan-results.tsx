@@ -16,6 +16,7 @@ import {
   Users,
   Calendar,
 } from "lucide-react"
+import { PlanExport } from "./plan-export"
 
 interface PlanResultsProps {
   response: FarmPlanResponse
@@ -265,9 +266,7 @@ export function PlanResults({ response, onSavePlan, onStartNewPlan }: PlanResult
         >
           Create Another Plan
         </Button>
-        <Button variant="outline" size="lg">
-          Download Report
-        </Button>
+        <PlanExport planData={response} />
       </div>
     </div>
   )
