@@ -7,7 +7,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { ArrowLeft, Award, CheckCircle2, XCircle, Loader2 } from "lucide-react"
-import { trainingApi } from "@/lib/training"
+import { trainingApi, type QuizQuestion } from "@/lib/training"
 import { tokenStorage } from "@/lib/auth"
 import { useToast } from "@/hooks/use-toast"
 
@@ -16,14 +16,6 @@ interface QuizComponentProps {
   courseTitle: string
   onBack: () => void
   onComplete: (score: number, passed: boolean) => void
-}
-
-interface QuizQuestion {
-  id: number
-  question: string
-  options: string[]
-  explanation: string
-  order_number: number
 }
 
 export function QuizComponent({ courseId, courseTitle, onBack, onComplete }: QuizComponentProps) {
@@ -47,20 +39,11 @@ export function QuizComponent({ courseId, courseTitle, onBack, onComplete }: Qui
       const token = tokenStorage.get()
       if (!token) throw new Error("Authentication required")
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/formations/${courseId}/questions`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.message || "Failed to fetch quiz questions")
-      }
-
-      const data = await response.json()
+      const response = await trainingApi.getQuizQuestions(courseId, token)
       
-      if (data.success && data.data.questions) {
-        setQuestions(data.data.questions)
-        setAnswers(new Array(data.data.questions.length).fill(""))
+      if (response.success && response.data.questions) {
+        setQuestions(response.data.questions)
+        setAnswers(new Array(response.data.questions.length).fill(""))
       } else {
         throw new Error("No questions available for this course")
       }

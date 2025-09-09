@@ -50,6 +50,23 @@ export interface UserProgress {
   }>
 }
 
+export interface QuizQuestion {
+  id: number
+  question: string
+  options: string[]
+  explanation: string
+  order_number: number
+}
+
+export interface QuizQuestionsResponse {
+  formation: {
+    id: number
+    title: string
+  }
+  questions: QuizQuestion[]
+  total_questions: number
+}
+
 export class TrainingError extends Error {
   constructor(message: string, public status?: number) {
     super(message)
@@ -113,8 +130,17 @@ export const trainingApi = {
     return response.json()
   },
 
+  // Get quiz questions for a formation
+  async getQuizQuestions(id: number, token: string): Promise<{ success: boolean; data: QuizQuestionsResponse }> {
+    const response = await fetch(`${API_BASE_URL}/api/formations/${id}/questions`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (!response.ok) throw new TrainingError("Failed to fetch quiz questions")
+    return response.json()
+  },
+
   // Submit quiz
-  async submitQuiz(id: number, answers: string[], token: string): Promise<{ success: boolean; data: { quiz_score: number; passed: boolean; total_questions: number; correct_answers: number } }> {
+  async submitQuiz(id: number, answers: string[], token: string): Promise<{ success: boolean; data: { quiz_score: number; passed: boolean; total_questions: number; correct_answers: number; passing_score: number } }> {
     const response = await fetch(`${API_BASE_URL}/api/formations/${id}/quiz`, {
       method: "POST",
       headers: {
