@@ -443,29 +443,129 @@ router.get('/user/progress', verifyToken, async (req, res) => {
     }
 });
 
+// @route   GET /api/formations/:id/questions
+// @desc    Get quiz questions for a specific formation
+// @access  Private
+router.get('/:id/questions', verifyToken, async (req, res) => {
+    try {
+        const formationId = req.params.id;
+        
+        // Check if formation exists
+        const formation = await database.get(
+            'SELECT id, titre FROM formations WHERE id = ? AND is_active = 1',
+            [formationId]
+        );
+        
+        if (!formation) {
+            return res.status(404).json({
+                error: 'Not found',
+                message: 'Formation not found'
+            });
+        }
+        
+        // Get quiz questions for this formation
+        const questions = await database.all(`
+            SELECT 
+                id,
+                question,
+                option_a,
+                option_b,
+                option_c,
+                option_d,
+                explanation,
+                order_number
+            FROM quiz_questions 
+            WHERE formation_id = ?
+            ORDER BY order_number ASC
+        `, [formationId]);
+        
+        if (questions.length === 0) {
+            return res.status(404).json({
+                error: 'No questions found',
+                message: 'No quiz questions available for this formation'
+            });
+        }
+        
+        // Don't send correct_answer to frontend for security
+        // Frontend will submit answers and backend will validate
+        const questionsWithoutAnswers = questions.map(q => ({
+            id: q.id,
+            question: q.question,
+            options: [q.option_a, q.option_b, q.option_c, q.option_d],
+            explanation: q.explanation,
+            order_number: q.order_number
+        }));
+        
+        res.status(200).json({
+            success: true,
+            message: 'Quiz questions retrieved successfully',
+            data: {
+                formation: {
+                    id: formation.id,
+                    title: formation.titre
+                },
+                questions: questionsWithoutAnswers,
+                total_questions: questions.length
+            }
+        });
+        
+    } catch (error) {
+        console.error('❌ Get quiz questions error:', error);
+        res.status(500).json({
+            error: 'Server error',
+            message: 'Error retrieving quiz questions'
+        });
+    }
+});
+
 // @route   POST /api/formations/:id/quiz
-// @desc    Submit quiz answers and calculate score
+// @desc    Submit quiz answers and calculate score (UPDATED VERSION)
 // @access  Private
 router.post('/:id/quiz', verifyToken, async (req, res) => {
     try {
         const formationId = req.params.id;
         const userId = req.user.id;
-        const { answers } = req.body;
-        
-        // For now, simulate a quiz scoring system
-        // In a real app, you'd have quiz questions stored in database
+        const { answers } = req.body; // answers should be array like ['A', 'B', 'C', 'A', 'B']
         
         if (!answers || !Array.isArray(answers)) {
             return res.status(400).json({
                 error: 'Validation error',
-                message: 'Réponses du quiz requises'
+                message: 'Quiz answers required as array'
             });
         }
         
-        // Simple scoring: assume 5 questions, calculate percentage
-        const totalQuestions = 5;
-        const correctAnswers = answers.length; // Simplified scoring
-        const score = Math.min(Math.round((correctAnswers / totalQuestions) * 100), 100);
+        // Get quiz questions with correct answers
+        const questions = await database.all(`
+            SELECT id, correct_answer, order_number
+            FROM quiz_questions 
+            WHERE formation_id = ?
+            ORDER BY order_number ASC
+        `, [formationId]);
+        
+        if (questions.length === 0) {
+            return res.status(404).json({
+                error: 'No questions found',
+                message: 'No quiz questions available for this formation'
+            });
+        }
+        
+        if (answers.length !== questions.length) {
+            return res.status(400).json({
+                error: 'Validation error',
+                message: `Expected ${questions.length} answers, got ${answers.length}`
+            });
+        }
+        
+        // Calculate score
+        let correctAnswers = 0;
+        questions.forEach((question, index) => {
+            if (answers[index] && answers[index].toUpperCase() === question.correct_answer) {
+                correctAnswers++;
+            }
+        });
+        
+        const score = Math.round((correctAnswers / questions.length) * 100);
+        const passed = score >= 70;
         
         // Update user progress with quiz score
         await database.run(`
@@ -474,15 +574,12 @@ router.post('/:id/quiz', verifyToken, async (req, res) => {
             WHERE user_id = ? AND formation_id = ?
         `, [score, userId, formationId]);
         
-        // Determine pass/fail (passing score is 70%)
-        const passed = score >= 70;
-        
         res.status(200).json({
             success: true,
-            message: passed ? 'Quiz réussi!' : 'Quiz échoué. Révisez et réessayez.',
+            message: passed ? 'Quiz passed!' : 'Quiz failed. Review the material and try again.',
             data: {
                 quiz_score: score,
-                total_questions: totalQuestions,
+                total_questions: questions.length,
                 correct_answers: correctAnswers,
                 passed: passed,
                 passing_score: 70
@@ -493,7 +590,7 @@ router.post('/:id/quiz', verifyToken, async (req, res) => {
         console.error('❌ Submit quiz error:', error);
         res.status(500).json({
             error: 'Server error',
-            message: 'Erreur lors de la soumission du quiz'
+            message: 'Error submitting quiz'
         });
     }
 });

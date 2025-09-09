@@ -1,12 +1,12 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
-import { ArrowLeft, Award, CheckCircle2, XCircle } from "lucide-react"
+import { ArrowLeft, Award, CheckCircle2, XCircle, Loader2 } from "lucide-react"
 import { trainingApi } from "@/lib/training"
 import { tokenStorage } from "@/lib/auth"
 import { useToast } from "@/hooks/use-toast"
@@ -18,43 +18,64 @@ interface QuizComponentProps {
   onComplete: (score: number, passed: boolean) => void
 }
 
-// Sample quiz questions - in a real app, these would come from the backend
-const sampleQuestions = [
-  {
-    question: "Quelle est la température optimale pour les poussins pendant la première semaine?",
-    options: ["25-27°C", "32-34°C", "28-30°C", "35-37°C"],
-    correct: 1
-  },
-  {
-    question: "Combien de fois par jour faut-il nourrir les poulets de chair?",
-    options: ["1 fois", "2 fois", "3 fois", "4 fois"],
-    correct: 2
-  },
-  {
-    question: "Quel est le taux de protéines recommandé pour l'aliment démarrage?",
-    options: ["16-18%", "20-22%", "14-16%", "24-26%"],
-    correct: 1
-  },
-  {
-    question: "À quel âge peut-on commencer la vaccination des poulets?",
-    options: ["Dès l'éclosion", "1 semaine", "2 semaines", "1 mois"],
-    correct: 0
-  },
-  {
-    question: "Quelle est la densité optimale pour des poulets de chair?",
-    options: ["5-7 poulets/m²", "8-10 poulets/m²", "12-15 poulets/m²", "15-20 poulets/m²"],
-    correct: 1
-  }
-]
+interface QuizQuestion {
+  id: number
+  question: string
+  options: string[]
+  explanation: string
+  order_number: number
+}
 
 export function QuizComponent({ courseId, courseTitle, onBack, onComplete }: QuizComponentProps) {
+  const [questions, setQuestions] = useState<QuizQuestion[]>([])
   const [currentQuestion, setCurrentQuestion] = useState(0)
   const [answers, setAnswers] = useState<string[]>([])
   const [selectedAnswer, setSelectedAnswer] = useState("")
   const [showResults, setShowResults] = useState(false)
   const [score, setScore] = useState(0)
   const [submitting, setSubmitting] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const { toast } = useToast()
+
+  useEffect(() => {
+    fetchQuizQuestions()
+  }, [courseId])
+
+  const fetchQuizQuestions = async () => {
+    try {
+      const token = tokenStorage.get()
+      if (!token) throw new Error("Authentication required")
+
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/formations/${courseId}/questions`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.message || "Failed to fetch quiz questions")
+      }
+
+      const data = await response.json()
+      
+      if (data.success && data.data.questions) {
+        setQuestions(data.data.questions)
+        setAnswers(new Array(data.data.questions.length).fill(""))
+      } else {
+        throw new Error("No questions available for this course")
+      }
+    } catch (error) {
+      console.error("Failed to fetch quiz questions:", error)
+      setError(error instanceof Error ? error.message : "Failed to load quiz questions")
+      toast({
+        title: "Error",
+        description: "Failed to load quiz questions",
+        variant: "destructive",
+      })
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const handleAnswerSelect = (value: string) => {
     setSelectedAnswer(value)
@@ -66,7 +87,7 @@ export function QuizComponent({ courseId, courseTitle, onBack, onComplete }: Qui
     setAnswers(newAnswers)
     setSelectedAnswer("")
 
-    if (currentQuestion < sampleQuestions.length - 1) {
+    if (currentQuestion < questions.length - 1) {
       setCurrentQuestion(currentQuestion + 1)
     } else {
       submitQuiz(newAnswers)
@@ -86,7 +107,14 @@ export function QuizComponent({ courseId, courseTitle, onBack, onComplete }: Qui
       const token = tokenStorage.get()
       if (!token) throw new Error("Authentication required")
 
-      const response = await trainingApi.submitQuiz(courseId, finalAnswers, token)
+      // Convert option indices to letters (0->A, 1->B, 2->C, 3->D)
+      const letterAnswers = finalAnswers.map(answer => {
+        if (answer === "") return "A" // Default to A for unanswered questions
+        const optionIndex = parseInt(answer)
+        return String.fromCharCode(65 + optionIndex) // 65 = 'A'
+      })
+
+      const response = await trainingApi.submitQuiz(courseId, letterAnswers, token)
       
       if (response.success) {
         setScore(response.data.quiz_score)
@@ -119,16 +147,55 @@ export function QuizComponent({ courseId, courseTitle, onBack, onComplete }: Qui
     }
   }
 
-  const calculateLocalScore = () => {
-    let correct = 0
-    answers.forEach((answer, index) => {
-      if (parseInt(answer) === sampleQuestions[index].correct) {
-        correct++
-      }
-    })
-    return Math.round((correct / sampleQuestions.length) * 100)
+  // Loading state
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center space-x-4">
+          <Button variant="ghost" onClick={onBack} className="flex items-center space-x-2">
+            <ArrowLeft className="h-4 w-4" />
+            <span>Back to Course</span>
+          </Button>
+        </div>
+
+        <Card>
+          <CardContent className="p-8">
+            <div className="flex items-center justify-center space-x-2">
+              <Loader2 className="h-6 w-6 animate-spin" />
+              <span>Loading quiz questions...</span>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    )
   }
 
+  // Error state
+  if (error || questions.length === 0) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center space-x-4">
+          <Button variant="ghost" onClick={onBack} className="flex items-center space-x-2">
+            <ArrowLeft className="h-4 w-4" />
+            <span>Back to Course</span>
+          </Button>
+        </div>
+
+        <Card>
+          <CardContent className="p-8 text-center">
+            <XCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+            <h3 className="text-lg font-medium mb-2">Quiz Not Available</h3>
+            <p className="text-muted-foreground mb-4">
+              {error || "No quiz questions are available for this course."}
+            </p>
+            <Button onClick={onBack}>Back to Course</Button>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  // Results state
   if (showResults) {
     const passed = score >= 70
     return (
@@ -168,7 +235,7 @@ export function QuizComponent({ courseId, courseTitle, onBack, onComplete }: Qui
             </div>
             
             <div className="text-sm text-muted-foreground">
-              You answered {Math.round(score / 20)} out of {sampleQuestions.length} questions correctly
+              You answered {Math.round((score / 100) * questions.length)} out of {questions.length} questions correctly
             </div>
             
             <div className="flex gap-3 justify-center">
@@ -187,7 +254,8 @@ export function QuizComponent({ courseId, courseTitle, onBack, onComplete }: Qui
     )
   }
 
-  const progress = ((currentQuestion + 1) / sampleQuestions.length) * 100
+  const progress = ((currentQuestion + 1) / questions.length) * 100
+  const currentQ = questions[currentQuestion]
 
   return (
     <div className="space-y-6">
@@ -208,7 +276,7 @@ export function QuizComponent({ courseId, courseTitle, onBack, onComplete }: Qui
               <span>Quiz: {courseTitle}</span>
             </CardTitle>
             <Badge variant="outline">
-              {currentQuestion + 1} of {sampleQuestions.length}
+              {currentQuestion + 1} of {questions.length}
             </Badge>
           </div>
           <div className="w-full bg-gray-200 rounded-full h-2">
@@ -227,13 +295,13 @@ export function QuizComponent({ courseId, courseTitle, onBack, onComplete }: Qui
             Question {currentQuestion + 1}
           </CardTitle>
           <CardDescription className="text-base">
-            {sampleQuestions[currentQuestion].question}
+            {currentQ.question}
           </CardDescription>
         </CardHeader>
         
         <CardContent>
           <RadioGroup value={selectedAnswer} onValueChange={handleAnswerSelect}>
-            {sampleQuestions[currentQuestion].options.map((option, index) => (
+            {currentQ.options.map((option, index) => (
               <div key={index} className="flex items-center space-x-2 p-3 border border-border rounded-lg">
                 <RadioGroupItem value={index.toString()} id={`option-${index}`} />
                 <Label htmlFor={`option-${index}`} className="flex-1 cursor-pointer">
@@ -259,8 +327,14 @@ export function QuizComponent({ courseId, courseTitle, onBack, onComplete }: Qui
           onClick={handleNextQuestion}
           disabled={!selectedAnswer || submitting}
         >
-          {submitting ? "Submitting..." : 
-           currentQuestion === sampleQuestions.length - 1 ? "Submit Quiz" : "Next"}
+          {submitting ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              Submitting...
+            </>
+          ) : (
+            currentQuestion === questions.length - 1 ? "Submit Quiz" : "Next"
+          )}
         </Button>
       </div>
     </div>

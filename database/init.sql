@@ -131,6 +131,48 @@ CREATE TABLE forum_comments (
     FOREIGN KEY (parent_comment_id) REFERENCES forum_comments(id)
 );
 
+-- 9. QUIZ QUESTIONS TABLE
+CREATE TABLE quiz_questions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    formation_id INTEGER NOT NULL,
+    question TEXT NOT NULL,
+    option_a TEXT NOT NULL,
+    option_b TEXT NOT NULL,
+    option_c TEXT NOT NULL,
+    option_d TEXT NOT NULL,
+    correct_answer CHAR(1) NOT NULL,
+    explanation TEXT,
+    order_number INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (formation_id) REFERENCES formations(id) ON DELETE CASCADE
+);
+
+-- 10. FORMATION CONTENT TABLE
+CREATE TABLE formation_content (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    formation_id INTEGER NOT NULL,
+    file_name VARCHAR(255) NOT NULL,
+    file_path VARCHAR(500) NOT NULL,
+    file_type VARCHAR(50) NOT NULL,
+    file_size INTEGER,
+    uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (formation_id) REFERENCES formations(id) ON DELETE CASCADE
+);
+
+-- 11. PROGRESS HISTORY TABLE
+CREATE TABLE progress_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    formation_id INTEGER NOT NULL,
+    old_percentage INTEGER DEFAULT 0,
+    new_percentage INTEGER NOT NULL,
+    action_type VARCHAR(50) NOT NULL,
+    notes TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (formation_id) REFERENCES formations(id) ON DELETE CASCADE
+);
+
 -- CREATE INDEXES FOR BETTER PERFORMANCE
 CREATE INDEX idx_users_email ON users(email);
 CREATE INDEX idx_farm_plans_user_id ON farm_plans(user_id);
@@ -140,3 +182,9 @@ CREATE INDEX idx_task_templates_duration_type ON task_templates(duration_type);
 CREATE INDEX idx_user_progress_user_id ON user_progress(user_id);
 CREATE INDEX idx_forum_posts_category ON forum_posts(category);
 CREATE INDEX idx_forum_comments_post_id ON forum_comments(post_id);
+
+-- CREATE INDEXES FOR BETTER PERFORMANCE (add these after existing indexes)
+CREATE INDEX idx_quiz_questions_formation_id ON quiz_questions(formation_id);
+CREATE INDEX idx_formation_content_formation_id ON formation_content(formation_id);
+CREATE INDEX idx_progress_history_user_id ON progress_history(user_id);
+CREATE INDEX idx_progress_history_formation_id ON progress_history(formation_id);
