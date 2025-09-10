@@ -1,415 +1,636 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { TaskDashboard } from "@/components/tasks/task-dashboard"
+import { TodaysTasks } from "@/components/tasks/todays-tasks"
+import { TaskDetail } from "@/components/tasks/task-detail"
+import { TaskCalendar } from "@/components/tasks/task-calendar"
+import { TaskStatistics } from "@/components/tasks/task-statistics"
+import { TaskCompletionDialog } from "@/components/tasks/task-completion-dialog"
+import { UpcomingTasks } from "@/components/tasks/upcoming-tasks"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Card, CardContent } from "@/components/ui/card"
-import { TaskCard } from "@/components/tasks/task-card"
-import { TaskForm } from "@/components/tasks/task-form"
-import { CompleteTaskDialog } from "@/components/tasks/complete-task-dialog"
+import { Badge } from "@/components/ui/badge"
 import { useAuth } from "@/hooks/use-auth"
 import { useToast } from "@/hooks/use-toast"
-import type { Task, CreateTaskInput, CompleteTaskInput } from "@/lib/tasks"
-import { mockTasks } from "@/lib/tasks"
-import { Plus, Search, Calendar, CheckCircle, Clock, AlertCircle, Target } from "lucide-react"
-import { isToday, isTomorrow } from "date-fns"
+import { tasksApi, type DailyTask } from "@/lib/tasks"
+import { tokenStorage } from "@/lib/auth"
+import { 
+  ArrowLeft, 
+  CheckSquare, 
+  Calendar, 
+  BarChart3,
+  Clock,
+  Plus,
+  Target,
+  AlertTriangle,
+  Loader2,
+  ListChecks,
+  TrendingUp
+} from "lucide-react"
 
-type ViewMode = "list" | "create" | "edit"
+type ViewState = "intro" | "dashboard" | "today" | "calendar" | "statistics" | "detail"
+
+interface FarmPlan {
+  id: number
+  plan_name: string
+  status: string
+  duration_days: number
+  nb_poulets_recommande: number
+}
 
 export default function TasksPage() {
-  const [tasks, setTasks] = useState<Task[]>(mockTasks)
-  const [filteredTasks, setFilteredTasks] = useState<Task[]>(mockTasks)
-  const [viewMode, setViewMode] = useState<ViewMode>("list")
-  const [editingTask, setEditingTask] = useState<Task | null>(null)
-  const [completingTask, setCompletingTask] = useState<Task | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
-  const [searchQuery, setSearchQuery] = useState("")
-  const [statusFilter, setStatusFilter] = useState<string>("all")
-  const [categoryFilter, setCategoryFilter] = useState<string>("all")
-  const [dateFilter, setDateFilter] = useState<string>("all")
-
+  const [view, setView] = useState<ViewState>("intro")
+  const [selectedFarmPlan, setSelectedFarmPlan] = useState<FarmPlan | null>(null)
+  const [selectedTask, setSelectedTask] = useState<DailyTask | null>(null)
+  const [farmPlans, setFarmPlans] = useState<FarmPlan[]>([])
+  const [loading, setLoading] = useState(true)
+  const [hasExistingTasks, setHasExistingTasks] = useState(false)
+  const [showCompletionDialog, setShowCompletionDialog] = useState(false)
+  const [taskToComplete, setTaskToComplete] = useState<DailyTask | null>(null)
   const { user } = useAuth()
   const { toast } = useToast()
 
-  // Filter tasks based on search and filters
   useEffect(() => {
-    let filtered = tasks
+    fetchFarmPlans()
+  }, [])
 
-    // Search filter
-    if (searchQuery) {
-      filtered = filtered.filter(
-        (task) =>
-          task.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          task.description.toLowerCase().includes(searchQuery.toLowerCase()),
-      )
+  useEffect(() => {
+    if (selectedFarmPlan) {
+      checkForExistingTasks()
     }
+  }, [selectedFarmPlan])
 
-    // Status filter
-    if (statusFilter !== "all") {
-      filtered = filtered.filter((task) => task.status === statusFilter)
-    }
-
-    // Category filter
-    if (categoryFilter !== "all") {
-      filtered = filtered.filter((task) => task.category === categoryFilter)
-    }
-
-    // Date filter
-    if (dateFilter !== "all") {
-      const today = new Date()
-      filtered = filtered.filter((task) => {
-        const taskDate = new Date(task.dueDate)
-        switch (dateFilter) {
-          case "today":
-            return isToday(taskDate)
-          case "tomorrow":
-            return isTomorrow(taskDate)
-          case "overdue":
-            return taskDate < today && task.status !== "completed"
-          default:
-            return true
-        }
-      })
-    }
-
-    setFilteredTasks(filtered)
-  }, [tasks, searchQuery, statusFilter, categoryFilter, dateFilter])
-
-  const handleCreateTask = async (data: CreateTaskInput) => {
-    setIsLoading(true)
+  const fetchFarmPlans = async () => {
     try {
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 1000))
-
-      const newTask: Task = {
-        id: `task-${Date.now()}`,
-        ...data,
-        status: "pending",
-        assignedTo: user?.id,
+      const token = tokenStorage.get()
+      if (!token) throw new Error("Authentication required")
+  
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/api/farm-plans`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+  
+      if (!response.ok) throw new Error("Failed to fetch farm plans")
+      
+      const data = await response.json()
+      console.log("API Response:", data) // Debug log
+      
+      // Ensure we always have an array
+      let plansArray: FarmPlan[] = []
+      
+      if (Array.isArray(data)) {
+        plansArray = data
+      } else if (data && Array.isArray(data.data)) {
+        plansArray = data.data
+      } else if (data && data.success && Array.isArray(data.data)) {
+        plansArray = data.data
       }
-
-      setTasks((prev) => [...prev, newTask])
-      setViewMode("list")
-      toast({
-        title: "Task Created",
-        description: "Your new task has been added to the schedule.",
-      })
+      
+      setFarmPlans(plansArray)
+  
+      // Auto-select first active plan if available
+      if (plansArray.length > 0) {
+        const activePlans = plansArray.filter((plan: FarmPlan) => plan.status === 'active')
+        if (activePlans.length > 0) {
+          setSelectedFarmPlan(activePlans[0])
+        } else {
+          // If no active plans, select the first one
+          setSelectedFarmPlan(plansArray[0])
+        }
+      }
     } catch (error) {
+      console.error("Failed to fetch farm plans:", error)
+      // Ensure farmPlans is still an array even on error
+      setFarmPlans([])
       toast({
-        title: "Creation Failed",
-        description: "Unable to create task. Please try again.",
+        title: "Error",
+        description: "Failed to load farm plans",
         variant: "destructive",
       })
     } finally {
-      setIsLoading(false)
+      setLoading(false)
     }
   }
 
-  const handleUpdateTask = async (data: CreateTaskInput) => {
-    if (!editingTask) return
+  const checkForExistingTasks = async () => {
+    if (!selectedFarmPlan) return
 
-    setIsLoading(true)
     try {
-      await new Promise((resolve) => setTimeout(resolve, 1000))
+      const token = tokenStorage.get()
+      if (!token) return
 
-      setTasks((prev) =>
-        prev.map((task) =>
-          task.id === editingTask.id
-            ? {
-                ...task,
-                ...data,
-              }
-            : task,
-        ),
-      )
-
-      setEditingTask(null)
-      setViewMode("list")
-      toast({
-        title: "Task Updated",
-        description: "Task details have been successfully updated.",
-      })
+      const hasValidTasks = await tasksApi.checkTasksExist(selectedFarmPlan.id, token)
+      setHasExistingTasks(hasValidTasks)
     } catch (error) {
-      toast({
-        title: "Update Failed",
-        description: "Unable to update task. Please try again.",
-        variant: "destructive",
-      })
-    } finally {
-      setIsLoading(false)
+      console.error("Failed to check tasks:", error)
+      setHasExistingTasks(false)
     }
   }
 
-  const handleCompleteTask = async (taskId: string, data: CompleteTaskInput) => {
-    setIsLoading(true)
-    try {
-      await new Promise((resolve) => setTimeout(resolve, 1000))
-
-      setTasks((prev) =>
-        prev.map((task) =>
-          task.id === taskId
-            ? {
-                ...task,
-                status: "completed" as const,
-                completedAt: new Date().toISOString(),
-                completedBy: user?.id,
-                notes: data.notes,
-                // In real app, photos would be uploaded and URLs returned
-                photos: data.photos
-                  ? data.photos.map((_, index) => ({
-                      id: `photo-${Date.now()}-${index}`,
-                      url: `/placeholder.svg?height=200&width=300&query=task completion photo`,
-                      uploadedAt: new Date().toISOString(),
-                    }))
-                  : undefined,
-              }
-            : task,
-        ),
-      )
-
-      setCompletingTask(null)
-      toast({
-        title: "Task Completed",
-        description: "Great job! Task has been marked as completed.",
-      })
-    } catch (error) {
-      toast({
-        title: "Completion Failed",
-        description: "Unable to complete task. Please try again.",
-        variant: "destructive",
-      })
-    } finally {
-      setIsLoading(false)
+  const handleFarmPlanChange = (planId: string) => {
+    const plan = farmPlans.find(p => p.id.toString() === planId)
+    setSelectedFarmPlan(plan || null)
+    // Reset view to intro when changing plans
+    if (view !== "intro") {
+      setView("intro")
     }
   }
 
-  const handleStartTask = (task: Task) => {
-    setTasks((prev) => prev.map((t) => (t.id === task.id ? { ...t, status: "in-progress" as const } : t)))
+  const handleTaskSelect = (task: DailyTask) => {
+    setSelectedTask(task)
+    setView("detail")
+  }
+
+  const handleTaskComplete = (task: DailyTask) => {
+    setTaskToComplete(task)
+    setShowCompletionDialog(true)
+  }
+
+  const handleTaskCompleted = (taskId: number) => {
+    // Refresh current view if needed
+    checkForExistingTasks()
     toast({
-      title: "Task Started",
-      description: `Started working on "${task.title}"`,
+      title: "Task Completed",
+      description: "Task has been marked as completed",
     })
   }
 
-  const handlePauseTask = (task: Task) => {
-    setTasks((prev) => prev.map((t) => (t.id === task.id ? { ...t, status: "pending" as const } : t)))
-    toast({
-      title: "Task Paused",
-      description: `Paused "${task.title}"`,
-    })
+  const handleBackToIntro = () => {
+    setView("intro")
+    setSelectedTask(null)
   }
 
-  const handleDeleteTask = (task: Task) => {
-    setTasks((prev) => prev.filter((t) => t.id !== task.id))
-    toast({
-      title: "Task Deleted",
-      description: "Task has been removed from your schedule.",
-    })
-  }
+  const handleViewDashboard = () => setView("dashboard")
+  const handleViewTodaysTasks = () => setView("today")
+  const handleViewCalendar = () => setView("calendar")
+  const handleViewStatistics = () => setView("statistics")
 
-  // Calculate stats
-  const stats = {
-    total: tasks.length,
-    completed: tasks.filter((t) => t.status === "completed").length,
-    pending: tasks.filter((t) => t.status === "pending").length,
-    overdue: tasks.filter((t) => t.status === "overdue").length,
-    today: tasks.filter((t) => isToday(new Date(t.dueDate))).length,
-  }
-
-  if (viewMode === "create") {
+  // Loading state
+  if (loading) {
     return (
       <div className="space-y-6">
-        <div className="flex items-center space-x-4">
-          <Button variant="ghost" onClick={() => setViewMode("list")}>
-            ← Back to Tasks
-          </Button>
+        <div className="flex items-center space-x-2">
+          <Loader2 className="h-5 w-5 animate-spin" />
+          <span>Loading farm plans...</span>
         </div>
-        <TaskForm onSubmit={handleCreateTask} onCancel={() => setViewMode("list")} isLoading={isLoading} />
       </div>
     )
   }
 
-  if (viewMode === "edit" && editingTask) {
+  // No farm plans available
+  if (farmPlans.length === 0) {
     return (
       <div className="space-y-6">
-        <div className="flex items-center space-x-4">
-          <Button variant="ghost" onClick={() => setViewMode("list")}>
-            ← Back to Tasks
-          </Button>
+        <div>
+          <h1 className="text-3xl font-bold text-foreground">Task Management</h1>
+          <p className="text-muted-foreground mt-2">
+            Manage your daily farming tasks and track progress.
+          </p>
         </div>
-        <TaskForm
-          task={editingTask}
-          onSubmit={handleUpdateTask}
-          onCancel={() => setViewMode("list")}
-          isLoading={isLoading}
+
+        <Card className="bg-gradient-to-br from-blue-50 via-background to-blue-100 border-blue-200">
+          <CardContent className="p-8 text-center">
+            <div className="flex flex-col items-center space-y-4">
+              <Plus className="h-12 w-12 text-blue-600" />
+              <div>
+                <h3 className="text-xl font-bold text-foreground mb-2">Create Your First Farm Plan</h3>
+                <p className="text-muted-foreground mb-6 max-w-md">
+                  You need a farm plan before you can manage tasks. Create one to get AI-powered 
+                  daily task recommendations for your poultry farm.
+                </p>
+                <Button 
+                  onClick={() => window.location.href = '/dashboard/farm-planning'}
+                  size="lg"
+                  className="bg-blue-600 hover:bg-blue-700"
+                >
+                  <Plus className="h-5 w-5 mr-2" />
+                  Create Farm Plan
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  // Farm plan selection
+  if (!selectedFarmPlan) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold text-foreground">Task Management</h1>
+          <p className="text-muted-foreground mt-2">
+            Select a farm plan to manage your daily tasks.
+          </p>
+        </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Select Farm Plan</CardTitle>
+            <CardDescription>Choose which farm plan you want to manage tasks for</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Select onValueChange={handleFarmPlanChange}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Select a farm plan" />
+              </SelectTrigger>
+              <SelectContent>
+                {farmPlans.map((plan) => (
+                  <SelectItem key={plan.id} value={plan.id.toString()}>
+                    <div className="flex items-center justify-between w-full">
+                      <span>{plan.plan_name}</span>
+                      <Badge variant={plan.status === 'active' ? 'default' : 'secondary'}>
+                        {plan.status}
+                      </Badge>
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  // Task Detail View
+  if (view === "detail" && selectedTask) {
+    return (
+      <div className="space-y-6">
+        <TaskDetail
+          task={selectedTask}
+          onBack={handleBackToIntro}
+          onTaskUpdate={(updatedTask) => {
+            setSelectedTask(updatedTask)
+            checkForExistingTasks()
+          }}
+          onTaskComplete={handleTaskCompleted}
         />
       </div>
     )
   }
 
+  // Dashboard View
+  if (view === "dashboard") {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-4">
+            <Button variant="ghost" onClick={handleBackToIntro} className="flex items-center space-x-2">
+              <ArrowLeft className="h-4 w-4" />
+              <span>Back</span>
+            </Button>
+            <div>
+              <h2 className="text-2xl font-bold">Task Dashboard</h2>
+              <p className="text-muted-foreground">{selectedFarmPlan.plan_name}</p>
+            </div>
+          </div>
+          <Select value={selectedFarmPlan.id.toString()} onValueChange={handleFarmPlanChange}>
+            <SelectTrigger className="w-[200px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {farmPlans.map((plan) => (
+                <SelectItem key={plan.id} value={plan.id.toString()}>
+                  {plan.plan_name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <TaskDashboard
+          farmPlanId={selectedFarmPlan.id}
+          farmPlanName={selectedFarmPlan.plan_name}
+          onViewTodaysTasks={handleViewTodaysTasks}
+          onViewAllTasks={handleViewCalendar}
+          onViewStatistics={handleViewStatistics}
+          onGenerateTasks={checkForExistingTasks}
+        />
+      </div>
+    )
+  }
+
+  // Today's Tasks View
+  if (view === "today") {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-4">
+            <Button variant="ghost" onClick={handleBackToIntro} className="flex items-center space-x-2">
+              <ArrowLeft className="h-4 w-4" />
+              <span>Back</span>
+            </Button>
+            <div>
+              <h2 className="text-2xl font-bold">Today's Tasks</h2>
+              <p className="text-muted-foreground">{selectedFarmPlan.plan_name}</p>
+            </div>
+          </div>
+          <Select value={selectedFarmPlan.id.toString()} onValueChange={handleFarmPlanChange}>
+            <SelectTrigger className="w-[200px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {farmPlans.map((plan) => (
+                <SelectItem key={plan.id} value={plan.id.toString()}>
+                  {plan.plan_name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <TodaysTasks
+          farmPlanId={selectedFarmPlan.id}
+          onTaskComplete={handleTaskCompleted}
+        />
+      </div>
+    )
+  }
+
+  // Calendar View
+  if (view === "calendar") {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-4">
+            <Button variant="ghost" onClick={handleBackToIntro} className="flex items-center space-x-2">
+              <ArrowLeft className="h-4 w-4" />
+              <span>Back</span>
+            </Button>
+            <div>
+              <h2 className="text-2xl font-bold">Task Calendar</h2>
+              <p className="text-muted-foreground">{selectedFarmPlan.plan_name}</p>
+            </div>
+          </div>
+          <Select value={selectedFarmPlan.id.toString()} onValueChange={handleFarmPlanChange}>
+            <SelectTrigger className="w-[200px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {farmPlans.map((plan) => (
+                <SelectItem key={plan.id} value={plan.id.toString()}>
+                  {plan.plan_name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <TaskCalendar
+          farmPlanId={selectedFarmPlan.id}
+          onTaskSelect={handleTaskSelect}
+        />
+      </div>
+    )
+  }
+
+  // Statistics View
+  if (view === "statistics") {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-4">
+            <Button variant="ghost" onClick={handleBackToIntro} className="flex items-center space-x-2">
+              <ArrowLeft className="h-4 w-4" />
+              <span>Back</span>
+            </Button>
+            <div>
+              <h2 className="text-2xl font-bold">Task Statistics</h2>
+              <p className="text-muted-foreground">{selectedFarmPlan.plan_name}</p>
+            </div>
+          </div>
+          <Select value={selectedFarmPlan.id.toString()} onValueChange={handleFarmPlanChange}>
+            <SelectTrigger className="w-[200px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {farmPlans.map((plan) => (
+                <SelectItem key={plan.id} value={plan.id.toString()}>
+                  {plan.plan_name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <TaskStatistics
+          farmPlanId={selectedFarmPlan.id}
+          farmPlanName={selectedFarmPlan.plan_name}
+        />
+      </div>
+    )
+  }
+
+  // Intro View (Default)
   return (
     <div className="space-y-8">
-      {/* Header */}
+      {/* Header with farm plan selector */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-foreground">Task Management</h1>
-          <p className="text-muted-foreground mt-2">Manage your daily farm activities and track progress</p>
+          <p className="text-muted-foreground mt-2">
+            Manage your daily farming tasks and track progress for optimal poultry farm operations.
+          </p>
         </div>
-        <Button onClick={() => setViewMode("create")} className="bg-primary hover:bg-primary/90">
-          <Plus className="mr-2 h-4 w-4" />
-          Add Task
-        </Button>
+        <div className="flex items-center space-x-2">
+          <span className="text-sm text-muted-foreground">Current Plan:</span>
+          <Select value={selectedFarmPlan.id.toString()} onValueChange={handleFarmPlanChange}>
+            <SelectTrigger className="w-[200px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {farmPlans.map((plan) => (
+                <SelectItem key={plan.id} value={plan.id.toString()}>
+                  {plan.plan_name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center space-x-2">
-              <Target className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm font-medium">Total Tasks</span>
-            </div>
-            <div className="text-2xl font-bold mt-2">{stats.total}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center space-x-2">
-              <CheckCircle className="h-4 w-4 text-green-600" />
-              <span className="text-sm font-medium">Completed</span>
-            </div>
-            <div className="text-2xl font-bold mt-2 text-green-600">{stats.completed}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center space-x-2">
-              <Clock className="h-4 w-4 text-blue-600" />
-              <span className="text-sm font-medium">Pending</span>
-            </div>
-            <div className="text-2xl font-bold mt-2 text-blue-600">{stats.pending}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center space-x-2">
-              <AlertCircle className="h-4 w-4 text-red-600" />
-              <span className="text-sm font-medium">Overdue</span>
-            </div>
-            <div className="text-2xl font-bold mt-2 text-red-600">{stats.overdue}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center space-x-2">
-              <Calendar className="h-4 w-4 text-primary" />
-              <span className="text-sm font-medium">Due Today</span>
-            </div>
-            <div className="text-2xl font-bold mt-2 text-primary">{stats.today}</div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Filters */}
-      <Card>
-        <CardContent className="p-4">
-          <div className="flex flex-col md:flex-row gap-4">
-            <div className="flex-1">
-              <div className="relative">
-                <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search tasks..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-10"
-                />
+      {/* Farm Plan Info */}
+      <Card className="bg-gradient-to-r from-primary/5 to-primary/10 border-primary/20">
+        <CardContent className="p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="font-bold text-lg">{selectedFarmPlan.plan_name}</h3>
+              <div className="flex items-center space-x-4 mt-2">
+                <Badge variant={selectedFarmPlan.status === 'active' ? 'default' : 'secondary'}>
+                  {selectedFarmPlan.status}
+                </Badge>
+                <span className="text-sm text-muted-foreground">
+                  {selectedFarmPlan.duration_days} days cycle
+                </span>
+                <span className="text-sm text-muted-foreground">
+                  {selectedFarmPlan.nb_poulets_recommande} chickens
+                </span>
               </div>
             </div>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-full md:w-40">
-                <SelectValue placeholder="Status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Status</SelectItem>
-                <SelectItem value="pending">Pending</SelectItem>
-                <SelectItem value="in-progress">In Progress</SelectItem>
-                <SelectItem value="completed">Completed</SelectItem>
-                <SelectItem value="overdue">Overdue</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-              <SelectTrigger className="w-full md:w-40">
-                <SelectValue placeholder="Category" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Categories</SelectItem>
-                <SelectItem value="feeding">Feeding</SelectItem>
-                <SelectItem value="cleaning">Cleaning</SelectItem>
-                <SelectItem value="health">Health</SelectItem>
-                <SelectItem value="maintenance">Maintenance</SelectItem>
-                <SelectItem value="monitoring">Monitoring</SelectItem>
-                <SelectItem value="other">Other</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={dateFilter} onValueChange={setDateFilter}>
-              <SelectTrigger className="w-full md:w-40">
-                <SelectValue placeholder="Date" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Dates</SelectItem>
-                <SelectItem value="today">Today</SelectItem>
-                <SelectItem value="tomorrow">Tomorrow</SelectItem>
-                <SelectItem value="overdue">Overdue</SelectItem>
-              </SelectContent>
-            </Select>
+            <Target className="h-12 w-12 text-primary/60" />
           </div>
         </CardContent>
       </Card>
 
-      {/* Tasks List */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {filteredTasks.map((task) => (
-          <TaskCard
-            key={task.id}
-            task={task}
-            onComplete={(task) => setCompletingTask(task)}
-            onEdit={(task) => {
-              setEditingTask(task)
-              setViewMode("edit")
-            }}
-            onDelete={handleDeleteTask}
-            onStart={handleStartTask}
-            onPause={handlePauseTask}
-          />
-        ))}
-      </div>
-
-      {filteredTasks.length === 0 && (
-        <Card>
-          <CardContent className="p-8 text-center">
-            <Calendar className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-foreground mb-2">No tasks found</h3>
-            <p className="text-muted-foreground mb-4">
-              {searchQuery || statusFilter !== "all" || categoryFilter !== "all" || dateFilter !== "all"
-                ? "Try adjusting your filters to see more tasks."
-                : "Get started by creating your first task."}
-            </p>
-            <Button onClick={() => setViewMode("create")} className="bg-primary hover:bg-primary/90">
-              <Plus className="mr-2 h-4 w-4" />
-              Create Task
-            </Button>
+      {/* Main Action Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        {/* Dashboard */}
+        <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={handleViewDashboard}>
+          <CardContent className="p-6 text-center">
+            <div className="flex flex-col items-center space-y-4">
+              <CheckSquare className="h-10 w-10 text-primary" />
+              <div>
+                <h3 className="font-bold text-lg mb-2">Dashboard</h3>
+                <p className="text-muted-foreground text-sm">
+                  Overview and quick actions for your farm tasks
+                </p>
+              </div>
+            </div>
           </CardContent>
         </Card>
+
+        {/* Today's Tasks */}
+        <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={handleViewTodaysTasks}>
+          <CardContent className="p-6 text-center">
+            <div className="flex flex-col items-center space-y-4">
+              <Clock className="h-10 w-10 text-orange-600" />
+              <div>
+                <h3 className="font-bold text-lg mb-2">Today's Tasks</h3>
+                <p className="text-muted-foreground text-sm">
+                  Focus on tasks scheduled for today
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Calendar View */}
+        <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={handleViewCalendar}>
+          <CardContent className="p-6 text-center">
+            <div className="flex flex-col items-center space-y-4">
+              <Calendar className="h-10 w-10 text-blue-600" />
+              <div>
+                <h3 className="font-bold text-lg mb-2">Calendar</h3>
+                <p className="text-muted-foreground text-sm">
+                  View all tasks in calendar format
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Statistics */}
+        <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={handleViewStatistics}>
+          <CardContent className="p-6 text-center">
+            <div className="flex flex-col items-center space-y-4">
+              <BarChart3 className="h-10 w-10 text-green-600" />
+              <div>
+                <h3 className="font-bold text-lg mb-2">Analytics</h3>
+                <p className="text-muted-foreground text-sm">
+                  Track performance and progress insights
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Quick Preview Widgets */}
+      {hasExistingTasks && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <UpcomingTasks
+            farmPlanId={selectedFarmPlan.id}
+            onTaskSelect={handleTaskSelect}
+            onViewAllTasks={handleViewCalendar}
+            maxTasks={5}
+          />
+          
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center space-x-2">
+                <TrendingUp className="h-5 w-5" />
+                <span>Quick Actions</span>
+              </CardTitle>
+              <CardDescription>Common task management actions</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Button onClick={handleViewTodaysTasks} className="w-full justify-start">
+                <Clock className="h-4 w-4 mr-2" />
+                View Today's Tasks
+              </Button>
+              <Button onClick={handleViewCalendar} variant="outline" className="w-full justify-start">
+                <Calendar className="h-4 w-4 mr-2" />
+                Open Calendar View
+              </Button>
+              <Button onClick={handleViewStatistics} variant="outline" className="w-full justify-start">
+                <BarChart3 className="h-4 w-4 mr-2" />
+                View Performance
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
       )}
 
-      {/* Complete Task Dialog */}
-      <CompleteTaskDialog
-        task={completingTask}
-        open={!!completingTask}
-        onOpenChange={(open) => !open && setCompletingTask(null)}
-        onComplete={handleCompleteTask}
-        isLoading={isLoading}
+      {/* Features Info */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center space-x-2">
+              <ListChecks className="h-5 w-5 text-primary" />
+              <span>AI-Generated Tasks</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <CardDescription>
+              Automatically generated daily tasks based on your farm plan, 
+              experience level, and poultry farming best practices.
+            </CardDescription>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center space-x-2">
+              <Target className="h-5 w-5 text-primary" />
+              <span>Progress Tracking</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <CardDescription>
+              Monitor completion rates, track overdue tasks, and analyze 
+              your farming performance with detailed statistics.
+            </CardDescription>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center space-x-2">
+              <AlertTriangle className="h-5 w-5 text-primary" />
+              <span>Critical Task Alerts</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <CardDescription>
+              Priority-based task management with alerts for critical 
+              activities that affect chicken health and farm productivity.
+            </CardDescription>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Task Completion Dialog */}
+      <TaskCompletionDialog
+        open={showCompletionDialog}
+        onClose={() => {
+          setShowCompletionDialog(false)
+          setTaskToComplete(null)
+        }}
+        task={taskToComplete}
+        onTaskComplete={handleTaskCompleted}
       />
     </div>
   )

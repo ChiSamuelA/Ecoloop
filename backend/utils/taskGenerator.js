@@ -62,11 +62,11 @@ class TaskGenerator {
             // Save tasks to database
             const savedTasks = await this.saveTasksToDatabase(scheduledTasks);
             
-            console.log(`✅ Generated ${savedTasks.length} tasks for farm plan ${farmPlanId}`);
+            console.log(`Generated ${savedTasks.length} tasks for farm plan ${farmPlanId}`);
             return savedTasks;
             
         } catch (error) {
-            console.error('❌ Task generation error:', error);
+            console.error('Task generation error:', error);
             throw error;
         }
     }
@@ -108,7 +108,7 @@ class TaskGenerator {
             
             return templates;
         } catch (error) {
-            console.error('❌ Error getting task templates:', error);
+            console.error('Error getting task templates:', error);
             throw error;
         }
     }
@@ -139,8 +139,8 @@ class TaskGenerator {
                     const extraTask = {
                         ...template,
                         id: null, // Will be auto-generated
-                        task_title: `Double vérification - ${template.task_title}`,
-                        task_description: `Vérification supplémentaire recommandée pour débutants: ${template.task_description}`,
+                        task_title: `Double Check - ${template.task_title}`,
+                        task_description: `Additional verification recommended for beginners: ${template.task_description}`,
                         is_critical: false
                     };
                     personalizedTasks.push(extraTask);
@@ -164,18 +164,18 @@ class TaskGenerator {
         // Add specific numbers for farm size
         if (nbChickens) {
             adjustedDescription = adjustedDescription.replace(
-                /poulets?/gi, 
-                `${nbChickens} poulets`
+                /chickens?|poulets?/gi, 
+                `${nbChickens} chickens`
             );
         }
         
         // Add extra details for beginners
         if (experienceLevel === 'debutant') {
             const beginnerTips = {
-                'température': '💡 Conseil: Utilisez un thermomètre fiable et vérifiez plusieurs zones du poulailler.',
-                'alimentation': '💡 Conseil: Distribuez la nourriture de manière uniforme pour éviter la compétition.',
-                'nettoyage': '💡 Conseil: Portez des gants et désinfectez vos mains après manipulation.',
-                'vaccination': '💡 Conseil: Respectez scrupuleusement les doses et consultez un vétérinaire si nécessaire.'
+                'temperature': 'Tip: Use a reliable thermometer and check multiple areas of the poultry house.',
+                'feeding': 'Tip: Distribute feed evenly to avoid competition between birds.',
+                'cleaning': 'Tip: Wear gloves and disinfect your hands after handling.',
+                'vaccination': 'Tip: Follow dosage strictly and consult a veterinarian if necessary.'
             };
             
             Object.keys(beginnerTips).forEach(keyword => {
@@ -254,7 +254,7 @@ class TaskGenerator {
             
             return savedTasks;
         } catch (error) {
-            console.error('❌ Error saving tasks to database:', error);
+            console.error('Error saving tasks to database:', error);
             throw error;
         }
     }
@@ -293,7 +293,7 @@ class TaskGenerator {
                 tasks_by_day: Object.values(tasksByDay)
             };
         } catch (error) {
-            console.error('❌ Error getting tasks for farm plan:', error);
+            console.error('Error getting tasks for farm plan:', error);
             throw error;
         }
     }
@@ -315,7 +315,7 @@ class TaskGenerator {
             
             return tasks;
         } catch (error) {
-            console.error('❌ Error getting today\'s tasks:', error);
+            console.error('Error getting today\'s tasks:', error);
             throw error;
         }
     }
@@ -359,7 +359,7 @@ class TaskGenerator {
             
             return updatedTask;
         } catch (error) {
-            console.error('❌ Error completing task:', error);
+            console.error('Error completing task:', error);
             throw error;
         }
     }
@@ -391,7 +391,7 @@ class TaskGenerator {
                     : 0
             };
         } catch (error) {
-            console.error('❌ Error getting task statistics:', error);
+            console.error('Error getting task statistics:', error);
             throw error;
         }
     }

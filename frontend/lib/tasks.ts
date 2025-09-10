@@ -1,238 +1,332 @@
-export interface Task {
-  id: string
-  title: string
-  description: string
-  category: "feeding" | "cleaning" | "health" | "maintenance" | "monitoring" | "other"
-  priority: "low" | "medium" | "high"
-  status: "pending" | "in-progress" | "completed" | "overdue"
-  dueDate: string
-  dueTime?: string
-  estimatedDuration: number // minutes
-  assignedTo?: string
-  farmPlanId?: string
-  completedAt?: string
-  completedBy?: string
-  photos?: TaskPhoto[]
-  notes?: string
-  recurring?: {
-    frequency: "daily" | "weekly" | "monthly"
-    interval: number
-    endDate?: string
-  }
-}
-
-export interface TaskPhoto {
-  id: string
-  url: string
-  caption?: string
-  uploadedAt: string
-}
-
-export interface CreateTaskInput {
-  title: string
-  description: string
-  category: Task["category"]
-  priority: Task["priority"]
-  dueDate: string
-  dueTime?: string
-  estimatedDuration: number
-  farmPlanId?: string
-  recurring?: Task["recurring"]
-}
-
-export interface UpdateTaskInput extends Partial<CreateTaskInput> {
-  status?: Task["status"]
-  notes?: string
-}
-
-export interface CompleteTaskInput {
-  notes?: string
-  photos?: File[]
-}
-
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"
 
+// Types
+export interface DailyTask {
+  id: number
+  farm_plan_id: number
+  template_id?: number
+  day_number: number
+  scheduled_date: string
+  task_title: string
+  task_description: string
+  category: 'alimentation' | 'nettoyage' | 'sante' | 'surveillance'
+  is_critical: boolean
+  completed: boolean
+  completion_date?: string
+  photo_url?: string
+  notes?: string
+  created_at: string
+  estimated_duration_minutes?: number
+}
+
+export interface TasksByDay {
+  day: number
+  date: string
+  tasks: DailyTask[]
+}
+
+export interface TaskStatistics {
+  total_tasks: number
+  completed_tasks: number
+  critical_tasks: number
+  completed_critical_tasks: number
+  overdue_tasks: number
+  today_pending_tasks: number
+  completion_percentage: number
+  critical_completion_percentage: number
+}
+
+export interface CategoryStats {
+  category: string
+  total: number
+  completed: number
+}
+
+export interface TodaysTasksResponse {
+  farm_plan: {
+    id: number
+    plan_name: string
+  }
+  date: string
+  tasks: DailyTask[]
+  total_tasks: number
+  completed_tasks: number
+  pending_tasks: number
+  critical_tasks: number
+}
+
+export interface TasksOverviewResponse {
+  total_tasks: number
+  completed_tasks: number
+  critical_tasks: number
+  upcoming_tasks: number
+  tasks_by_day: TasksByDay[]
+  statistics: TaskStatistics
+}
+
+export interface GenerateTasksResponse {
+  generated_count: number
+  task_summary: any
+}
+
+export interface UpcomingTasksResponse {
+  upcoming_tasks: DailyTask[]
+  count: number
+}
+
+export interface StatisticsResponse {
+  overall_statistics: TaskStatistics
+  category_breakdown: CategoryStats[]
+}
+
 export class TaskError extends Error {
-  constructor(
-    message: string,
-    public status?: number,
-  ) {
+  constructor(message: string, public status?: number) {
     super(message)
     this.name = "TaskError"
   }
 }
 
 export const tasksApi = {
-  async getTasks(token: string, filters?: { date?: string; status?: string; category?: string }): Promise<Task[]> {
-    const params = new URLSearchParams()
-    if (filters?.date) params.append("date", filters.date)
-    if (filters?.status) params.append("status", filters.status)
-    if (filters?.category) params.append("category", filters.category)
-
-    const response = await fetch(`${API_BASE_URL}/api/tasks?${params}`, {
-      headers: {
+  // Generate tasks for a farm plan
+  async generateTasks(farmPlanId: number, token: string): Promise<{ success: boolean; message: string; data: GenerateTasksResponse }> {
+    const response = await fetch(`${API_BASE_URL}/api/tasks/generate/${farmPlanId}`, {
+      method: "POST",
+      headers: { 
         Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json"
       },
+      body: JSON.stringify({})
     })
-
     if (!response.ok) {
-      throw new TaskError("Failed to fetch tasks", response.status)
+      const errorData = await response.json()
+      throw new TaskError(errorData.message || "Failed to generate tasks", response.status)
     }
-
-    const data = await response.json()
-    return data.tasks || []
+    return response.json()
   },
 
-  async createTask(input: CreateTaskInput, token: string): Promise<Task> {
-    const response = await fetch(`${API_BASE_URL}/api/tasks`, {
+  // Get all tasks for a farm plan
+  async getFarmPlanTasks(farmPlanId: number, token: string): Promise<{ success: boolean; message: string; data: TasksOverviewResponse }> {
+    const response = await fetch(`${API_BASE_URL}/api/tasks/${farmPlanId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (!response.ok) {
+      const errorData = await response.json()
+      throw new TaskError(errorData.message || "Failed to fetch farm plan tasks", response.status)
+    }
+    return response.json()
+  },
+
+  // Get today's tasks
+  async getTodaysTasks(farmPlanId: number, token: string): Promise<{ success: boolean; message: string; data: TodaysTasksResponse }> {
+    const response = await fetch(`${API_BASE_URL}/api/tasks/${farmPlanId}/today`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (!response.ok) {
+      const errorData = await response.json()
+      throw new TaskError(errorData.message || "Failed to fetch today's tasks", response.status)
+    }
+    return response.json()
+  },
+
+  // Get upcoming tasks (next 7 days)
+  async getUpcomingTasks(farmPlanId: number, token: string): Promise<{ success: boolean; message: string; data: UpcomingTasksResponse }> {
+    const response = await fetch(`${API_BASE_URL}/api/tasks/${farmPlanId}/upcoming`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (!response.ok) {
+      const errorData = await response.json()
+      throw new TaskError(errorData.message || "Failed to fetch upcoming tasks", response.status)
+    }
+    return response.json()
+  },
+
+  // Complete a task
+  async completeTask(taskId: number, notes: string, token: string): Promise<{ success: boolean; message: string; data: { task: DailyTask } }> {
+    const response = await fetch(`${API_BASE_URL}/api/tasks/${taskId}/complete`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify(input),
+      body: JSON.stringify({ notes }),
     })
-
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ message: "Failed to create task" }))
-      throw new TaskError(error.message || "Failed to create task", response.status)
+      const errorData = await response.json()
+      throw new TaskError(errorData.message || "Failed to complete task", response.status)
     }
-
     return response.json()
   },
 
-  async updateTask(id: string, input: UpdateTaskInput, token: string): Promise<Task> {
-    const response = await fetch(`${API_BASE_URL}/api/tasks/${id}`, {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(input),
-    })
-
-    if (!response.ok) {
-      throw new TaskError("Failed to update task", response.status)
-    }
-
-    return response.json()
-  },
-
-  async completeTask(id: string, input: CompleteTaskInput, token: string): Promise<Task> {
+  // Upload photo for a task
+  async uploadTaskPhoto(taskId: number, photo: File, token: string): Promise<{ success: boolean; message: string; data: { task: DailyTask; photo_url: string } }> {
     const formData = new FormData()
-    if (input.notes) formData.append("notes", input.notes)
-    if (input.photos) {
-      input.photos.forEach((photo, index) => {
-        formData.append(`photos`, photo)
-      })
-    }
+    formData.append('photo', photo)
 
-    const response = await fetch(`${API_BASE_URL}/api/tasks/${id}/complete`, {
+    const response = await fetch(`${API_BASE_URL}/api/tasks/${taskId}/photo`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
       },
       body: formData,
     })
-
     if (!response.ok) {
-      throw new TaskError("Failed to complete task", response.status)
+      const errorData = await response.json()
+      throw new TaskError(errorData.message || "Failed to upload photo", response.status)
     }
-
     return response.json()
   },
 
-  async deleteTask(id: string, token: string): Promise<void> {
-    const response = await fetch(`${API_BASE_URL}/api/tasks/${id}`, {
-      method: "DELETE",
+  // Update task notes
+  async updateTaskNotes(taskId: number, notes: string, token: string): Promise<{ success: boolean; message: string; data: { task: DailyTask } }> {
+    const response = await fetch(`${API_BASE_URL}/api/tasks/${taskId}`, {
+      method: "PUT",
       headers: {
+        "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
       },
+      body: JSON.stringify({ notes }),
     })
-
     if (!response.ok) {
-      throw new TaskError("Failed to delete task", response.status)
+      const errorData = await response.json()
+      throw new TaskError(errorData.message || "Failed to update task notes", response.status)
+    }
+    return response.json()
+  },
+
+  // Get task statistics
+  async getTaskStatistics(farmPlanId: number, token: string): Promise<{ success: boolean; message: string; data: StatisticsResponse }> {
+    const response = await fetch(`${API_BASE_URL}/api/tasks/${farmPlanId}/statistics`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (!response.ok) {
+      const errorData = await response.json()
+      throw new TaskError(errorData.message || "Failed to fetch task statistics", response.status)
+    }
+    return response.json()
+  },
+
+  // Check if tasks exist for a farm plan
+  async checkTasksExist(farmPlanId: number, token: string): Promise<boolean> {
+    try {
+      const response = await this.getFarmPlanTasks(farmPlanId, token)
+      return response.success && response.data.total_tasks > 0
+    } catch (error) {
+      return false
     }
   },
-}
 
-// Mock data for development
-export const mockTasks: Task[] = [
-  {
-    id: "task-1",
-    title: "Morning Feed - Layer Chickens",
-    description: "Feed 150 layer chickens with layer feed (16-18% protein)",
-    category: "feeding",
-    priority: "high",
-    status: "overdue",
-    dueDate: "2024-01-15",
-    dueTime: "07:00",
-    estimatedDuration: 30,
-    recurring: {
-      frequency: "daily",
-      interval: 1,
-    },
+  // Get task summary for dashboard
+  async getTaskSummary(farmPlanId: number, token: string): Promise<{
+    todaysStats: TodaysTasksResponse | null
+    upcomingCount: number
+    overallStats: TaskStatistics | null
+  }> {
+    try {
+      const [todaysResponse, upcomingResponse, statsResponse] = await Promise.allSettled([
+        this.getTodaysTasks(farmPlanId, token),
+        this.getUpcomingTasks(farmPlanId, token),
+        this.getTaskStatistics(farmPlanId, token)
+      ])
+
+      return {
+        todaysStats: todaysResponse.status === 'fulfilled' ? todaysResponse.value.data : null,
+        upcomingCount: upcomingResponse.status === 'fulfilled' ? upcomingResponse.value.data.count : 0,
+        overallStats: statsResponse.status === 'fulfilled' ? statsResponse.value.data.overall_statistics : null
+      }
+    } catch (error) {
+      return {
+        todaysStats: null,
+        upcomingCount: 0,
+        overallStats: null
+      }
+    }
   },
-  {
-    id: "task-2",
-    title: "Water System Check",
-    description: "Inspect water nipples and refill water tanks",
-    category: "maintenance",
-    priority: "medium",
-    status: "pending",
-    dueDate: "2024-01-15",
-    dueTime: "10:00",
-    estimatedDuration: 20,
+
+  // Bulk complete multiple tasks
+  async bulkCompleteTasks(taskIds: number[], notes: string, token: string): Promise<{
+    successful: number[]
+    failed: { taskId: number; error: string }[]
+  }> {
+    const results = await Promise.allSettled(
+      taskIds.map(taskId => this.completeTask(taskId, notes, token))
+    )
+
+    const successful: number[] = []
+    const failed: { taskId: number; error: string }[] = []
+
+    results.forEach((result, index) => {
+      const taskId = taskIds[index]
+      if (result.status === 'fulfilled') {
+        successful.push(taskId)
+      } else {
+        failed.push({
+          taskId,
+          error: result.reason.message || 'Unknown error'
+        })
+      }
+    })
+
+    return { successful, failed }
   },
-  {
-    id: "task-3",
-    title: "Egg Collection",
-    description: "Collect eggs from nesting boxes and sort by quality",
-    category: "monitoring",
-    priority: "medium",
-    status: "pending",
-    dueDate: "2024-01-15",
-    dueTime: "14:00",
-    estimatedDuration: 45,
-    recurring: {
-      frequency: "daily",
-      interval: 1,
-    },
+
+  // Get tasks by category for a farm plan
+  async getTasksByCategory(farmPlanId: number, category: string, token: string): Promise<{ success: boolean; data: DailyTask[] }> {
+    try {
+      const response = await this.getFarmPlanTasks(farmPlanId, token)
+      if (response.success) {
+        const filteredTasks = response.data.tasks_by_day.flatMap(day => 
+          day.tasks.filter(task => task.category === category)
+        )
+        return {
+          success: true,
+          data: filteredTasks
+        }
+      }
+      return { success: false, data: [] }
+    } catch (error) {
+      return { success: false, data: [] }
+    }
   },
-  {
-    id: "task-4",
-    title: "Coop Cleaning",
-    description: "Deep clean chicken coop and replace bedding",
-    category: "cleaning",
-    priority: "medium",
-    status: "pending",
-    dueDate: "2024-01-16",
-    dueTime: "09:00",
-    estimatedDuration: 120,
-    recurring: {
-      frequency: "weekly",
-      interval: 1,
-    },
+
+  // Get overdue tasks
+  async getOverdueTasks(farmPlanId: number, token: string): Promise<{ success: boolean; data: DailyTask[] }> {
+    try {
+      const response = await this.getFarmPlanTasks(farmPlanId, token)
+      if (response.success) {
+        const today = new Date().toISOString().split('T')[0]
+        const overdueTasks = response.data.tasks_by_day.flatMap(day => 
+          day.tasks.filter(task => !task.completed && task.scheduled_date < today)
+        )
+        return {
+          success: true,
+          data: overdueTasks
+        }
+      }
+      return { success: false, data: [] }
+    } catch (error) {
+      return { success: false, data: [] }
+    }
   },
-  {
-    id: "task-5",
-    title: "Health Inspection",
-    description: "Check chickens for signs of illness or injury",
-    category: "health",
-    priority: "high",
-    status: "completed",
-    dueDate: "2024-01-14",
-    dueTime: "16:00",
-    estimatedDuration: 60,
-    completedAt: "2024-01-14T16:30:00Z",
-    notes: "All chickens appear healthy. No signs of disease.",
-    photos: [
-      {
-        id: "photo-1",
-        url: "/healthy-chickens-in-coop.png",
-        caption: "Healthy chickens in main coop",
-        uploadedAt: "2024-01-14T16:30:00Z",
-      },
-    ],
-  },
-]
+
+  // Get completion percentage for a specific date range
+  async getCompletionRate(farmPlanId: number, startDate: string, endDate: string, token: string): Promise<number> {
+    try {
+      const response = await this.getFarmPlanTasks(farmPlanId, token)
+      if (response.success) {
+        const tasksInRange = response.data.tasks_by_day.flatMap(day => 
+          day.tasks.filter(task => 
+            task.scheduled_date >= startDate && task.scheduled_date <= endDate
+          )
+        )
+        
+        if (tasksInRange.length === 0) return 0
+        
+        const completedInRange = tasksInRange.filter(task => task.completed).length
+        return Math.round((completedInRange / tasksInRange.length) * 100)
+      }
+      return 0
+    } catch (error) {
+      return 0
+    }
+  }
+}
