@@ -74,17 +74,12 @@ export default function TasksPage() {
       if (!response.ok) throw new Error("Failed to fetch farm plans")
       
       const data = await response.json()
-      console.log("API Response:", data) // Debug log
       
-      // Ensure we always have an array
+      // Remove all the debug logs and replace with this:
       let plansArray: FarmPlan[] = []
       
-      if (Array.isArray(data)) {
-        plansArray = data
-      } else if (data && Array.isArray(data.data)) {
-        plansArray = data.data
-      } else if (data && data.success && Array.isArray(data.data)) {
-        plansArray = data.data
+      if (data && data.success && Array.isArray(data.data?.farm_plans)) {
+        plansArray = data.data.farm_plans
       }
       
       setFarmPlans(plansArray)
@@ -101,7 +96,6 @@ export default function TasksPage() {
       }
     } catch (error) {
       console.error("Failed to fetch farm plans:", error)
-      // Ensure farmPlans is still an array even on error
       setFarmPlans([])
       toast({
         title: "Error",
@@ -112,6 +106,8 @@ export default function TasksPage() {
       setLoading(false)
     }
   }
+
+  
 
   const checkForExistingTasks = async () => {
     if (!selectedFarmPlan) return
